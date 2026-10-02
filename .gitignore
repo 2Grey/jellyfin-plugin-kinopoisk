@@ -1,4 +1,5 @@
 src/*/bin/*
 src/*/obj/*
+dist/kinopoisk/*.zip
 .devcontainer
 .DS_Store
