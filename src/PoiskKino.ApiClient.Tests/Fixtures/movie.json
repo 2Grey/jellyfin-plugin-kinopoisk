@@ -1,0 +1,24 @@
+{
+  "id": 123,
+  "name": "Тестовый фильм",
+  "alternativeName": "Example movie",
+  "enName": null,
+  "type": "movie",
+  "year": 2026,
+  "description": "Описание фильма",
+  "rating": { "kp": 8.5, "imdb": 8.1, "filmCritics": null },
+  "externalId": { "imdb": "tt123", "tmdb": 456 },
+  "poster": { "url": "https://example.com/poster.jpg", "previewUrl": null },
+  "backdrop": { "url": "https://example.com/backdrop.jpg" },
+  "genres": [{ "name": "драма" }],
+  "countries": [{ "name": "Россия" }],
+  "ageRating": 16,
+  "persons": [
+    { "id": 456, "name": "Тестовый актёр", "enName": null, "photo": null, "description": "главный герой", "enProfession": "actor", "profession": "актеры" },
+    { "id": 789, "name": "Режиссёр", "enProfession": "director", "photo": null },
+    { "id": 900, "name": "Переводчик", "enProfession": "translator", "photo": null }
+  ],
+  "premiere": { "world": "2026-03-04T00:00:00.000Z", "russia": null },
+  "videos": { "trailers": [{ "url": "https://www.youtube.com/embed/abc123", "name": "Трейлер", "site": "youtube", "type": "TRAILER" }] },
+  "unknownNewField": { "anything": true }
+}

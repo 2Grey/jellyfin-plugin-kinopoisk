@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.Kinopoisk.MetadataProviders;
 using Jellyfin.Plugin.Kinopoisk.Model;
-using KinopoiskUnofficialInfo.ApiClient;
+using PoiskKino.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -23,36 +23,24 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
         [InlineData(true)]
         public async Task RegisteredProvidersReturnVideoMetadata(bool isSeries)
         {
-            var apiClient = new Mock<IKinopoiskApiClient>(MockBehavior.Strict);
-            apiClient.Setup(api => api.GetSingleFilm(123, It.IsAny<CancellationToken?>()))
-                .ReturnsAsync(new Film
+            var apiClient = new Mock<IPoiskKinoApiClient>(MockBehavior.Strict);
+            apiClient.Setup(api => api.GetMovie(123, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new PoiskKinoMovie
                 {
-                    KinopoiskId = 123,
-                    NameRu = "Тестовый фильм",
+                    Id = 123,
+                    Name = "Тестовый фильм",
                     Year = 2026,
-                    RatingKinopoisk = 8.5,
-                    ImdbId = "tt123"
-                });
-            apiClient.Setup(api => api.GetStaff(123, It.IsAny<CancellationToken?>()))
-                .ReturnsAsync(new List<StaffResponse>
-                {
-                    new StaffResponse
+                    Rating = new MovieRating { Kp = 8.5 },
+                    ExternalId = new ExternalIds { Imdb = "tt123" },
+                    Persons = new List<MoviePerson>
                     {
-                        StaffId = 456,
-                        NameRu = "Тестовый актёр",
-                        ProfessionKey = StaffResponseProfessionKey.ACTOR
-                    }
-                });
-            apiClient.Setup(api => api.GetTrailers(123, It.IsAny<CancellationToken?>()))
-                .ReturnsAsync(new VideoResponse
-                {
-                    Items = new List<VideoResponse_items>
+                        new MoviePerson { Id = 456, Name = "Тестовый актёр", EnProfession = "actor" }
+                    },
+                    Videos = new MovieVideos
                     {
-                        new VideoResponse_items
+                        Trailers = new List<MovieVideo>
                         {
-                            Name = "Трейлер",
-                            Url = "https://youtu.be/example",
-                            Site = VideoResponse_itemsSite.YOUTUBE
+                            new MovieVideo { Name = "Трейлер", Url = "https://www.youtube.com/embed/example", Site = "youtube" }
                         }
                     }
                 });
@@ -79,7 +67,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
                 AssertVideoMetadata(await provider.GetMetadata(info, CancellationToken.None));
             }
 
-            apiClient.VerifyAll();
+            apiClient.Verify(api => api.GetMovie(123, It.IsAny<CancellationToken>()), Times.Once);
+            apiClient.VerifyNoOtherCalls();
         }
 
         private static void AssertVideoMetadata<T>(MetadataResult<T> result) where T : BaseItem

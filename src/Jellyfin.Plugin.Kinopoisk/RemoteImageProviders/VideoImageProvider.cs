@@ -5,7 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
-using KinopoiskUnofficialInfo.ApiClient;
+using PoiskKino.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -18,12 +18,12 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
     public class VideoImageProvider : BaseImageProvider
     {
         private readonly ILogger<VideoImageProvider> _logger;
-        private readonly IKinopoiskApiClient _apiClient;
+        private readonly IPoiskKinoApiClient _apiClient;
         private readonly IProviderIdResolver<BaseItem> _providerIdResolver;
 
         public override string Name => Constants.ProviderName;
 
-        public VideoImageProvider(IKinopoiskApiClient kinopoiskApiClient, IProviderIdResolver<BaseItem> providerIdResolver, ILogger<VideoImageProvider> logger, IHttpClientFactory httpClientFactory)
+        public VideoImageProvider(IPoiskKinoApiClient kinopoiskApiClient, IProviderIdResolver<BaseItem> providerIdResolver, ILogger<VideoImageProvider> logger, IHttpClientFactory httpClientFactory)
             : base(httpClientFactory)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -47,7 +47,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             if (!resolveResult)
                 return Enumerable.Empty<RemoteImageInfo>();
 
-            var film = await _apiClient.GetSingleFilm(kinopoiskId, cancellationToken);
+            var film = await _apiClient.GetMovie(kinopoiskId, cancellationToken);
 
             return await FilterEmptyImages(film.ToRemoteImageInfos());
         }

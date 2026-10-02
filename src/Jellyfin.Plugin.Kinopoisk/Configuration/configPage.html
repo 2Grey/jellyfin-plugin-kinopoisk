@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="utf-8">
     <title>КиноПоиск</title>
@@ -10,15 +10,15 @@
             <div class="content-primary">
                 <form id="KinopoiskConfigForm">
                     <div class="inputContainer">
-                        <label class="inputeLabel inputLabelUnfocused" for="ApiToken">ApiToken</label>
-                        <input id="ApiToken" name="ApiToken" type="text" is="emby-input" />
-                        <div class="fieldDescription">Personal api token, you can get your own on
-                            <a href="https://kinopoiskapiunofficial.tech">https://kinopoiskapiunofficial.tech</a>
+                        <label class="inputLabel inputLabelUnfocused" for="PoiskKinoApiToken">API-ключ PoiskKino</label>
+                        <input id="PoiskKinoApiToken" name="PoiskKinoApiToken" type="password" is="emby-input" autocomplete="off" />
+                        <div class="fieldDescription">Укажите личный API-ключ <a href="https://poiskkino.dev/">PoiskKino</a>.
+                            Ключ прежнего API не подходит. <a href="https://api.poiskkino.dev/documentation">Документация</a>.
                         </div>
                     </div>
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-                            <span>Save</span>
+                            <span>Сохранить</span>
                         </button>
                     </div>
                 </form>
@@ -32,7 +32,7 @@
             document.querySelector('#KinopoiskConfigPage').addEventListener('pageshow', function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    document.querySelector('#ApiToken').value = config.ApiToken;
+                    document.querySelector('#PoiskKinoApiToken').value = config.PoiskKinoApiToken || "";
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -41,7 +41,7 @@
                 event.preventDefault();
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    config.ApiToken = document.querySelector('#ApiToken').value;
+                    config.PoiskKinoApiToken = document.querySelector('#PoiskKinoApiToken').value;
                     ApiClient.updatePluginConfiguration(KinopoiskPluginConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });

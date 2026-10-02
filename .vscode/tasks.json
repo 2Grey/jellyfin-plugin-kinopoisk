@@ -4,21 +4,6 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "regenerate-api-proxy",
-            "command": "dotnet",
-            "type": "process",
-            "args": [
-                "msbuild", "-target:GenerateApiClientSourceCode",
-                "${workspaceFolder:workspace}/src/KinopoiskUnofficialInfo.ApiClient/KinopoiskUnofficialInfo.ApiClient.csproj",
-                // Ask dotnet build to generate full paths for file names.
-                "-property:GenerateFullPaths=true",
-                // Do not generate summary otherwise it leads to duplicate errors in Problems panel
-                "-consoleloggerparameters:NoSummary"
-            ],
-            "group": "build",
-            "problemMatcher": "$msCompile"
-        },
-        {
             "label": "build",
             "command": "dotnet",
             "type": "process",

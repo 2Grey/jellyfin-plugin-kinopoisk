@@ -26,7 +26,7 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             if (!string.IsNullOrEmpty(info.Path))
             {
                 var match = _kinopoiskIdRegex.Match(info.Path);
-                if (match.Success && int.TryParse(match.Groups["kinopoiskId"].Value, out var result))
+                if (match.Success && int.TryParse(match.Groups["kinopoiskId"].Value, out var result) && result > 0)
                 {
                     _logger.LogDebug($"Got KinopoiskProviderId from filename ({result}, {info.Path})");
                     return (true, result);

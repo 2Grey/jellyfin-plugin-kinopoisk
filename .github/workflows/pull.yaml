@@ -30,4 +30,4 @@ jobs:
         name: my-artifact
         path: |
           ./src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/Jellyfin.Plugin.Kinopoisk.dll
-          ./src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net10.0/KinopoiskUnofficialInfo.ApiClient.dll
+          ./src/PoiskKino.ApiClient/bin/Release/net10.0/PoiskKino.ApiClient.dll

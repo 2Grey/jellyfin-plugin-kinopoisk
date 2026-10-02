@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using KinopoiskUnofficialInfo.ApiClient;
+using PoiskKino.ApiClient;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
@@ -13,9 +15,9 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
     public class VideoResolver<T> : CommonLookupInfoResolver<T>
         where T : ItemLookupInfo
     {
-        private readonly IKinopoiskApiClient _kinopoiskApiClient;
+        private readonly IPoiskKinoApiClient _kinopoiskApiClient;
 
-        public VideoResolver(IKinopoiskApiClient kinopoiskApiClient, ILogger<VideoResolver<T>> logger) : base(logger)
+        public VideoResolver(IPoiskKinoApiClient kinopoiskApiClient, ILogger<VideoResolver<T>> logger) : base(logger)
         {
             _kinopoiskApiClient = kinopoiskApiClient ?? throw new ArgumentNullException(nameof(kinopoiskApiClient));
         }
@@ -35,13 +37,13 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             }
 
             _logger.LogDebug($"Trying to get suitable film with name '{info.Name}'...");
-            var searchResult = await _kinopoiskApiClient.SearchByKeyword(info.Name, 1, ct ?? CancellationToken.None);
-            if (searchResult.SearchFilmsCountResult < 1 || searchResult?.Films.Count < 1)
+            var searchResult = await _kinopoiskApiClient.SearchMovies(info.Name, 1, ct ?? CancellationToken.None);
+            if (searchResult?.Docs is null || searchResult.Docs.Count == 0)
             {
                 _logger.LogDebug($"Received empty search result");
                 return (false, 0);
             }
-            var candidates = searchResult.Films.ToArray();
+            var candidates = searchResult.Docs.Where(movie => movie != null && movie.Id > 0).ToArray();
             _logger.LogDebug($"Received {candidates.Length} results, trying to filter and match...");
 
             var candidates_by_year = FilterByYear(info, candidates);
@@ -65,14 +67,14 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
 
             if (0 < candidates_by_year.Count)
             {
-                var kinopoiskId = candidates_by_year.First().FilmId;
+                var kinopoiskId = candidates_by_year.First().Id;
                 _logger.LogDebug($"All other checks failed, use first result by year, setting KinopoiskProviderId to {kinopoiskId} ({info.Name})");
                 return (true, kinopoiskId);
             }
 
             if (0 < candidates.Length)
             {
-                var kinopoiskId = candidates.First().FilmId;
+                var kinopoiskId = candidates.First().Id;
                 _logger.LogDebug($"All other checks failed, use first result, setting KinopoiskProviderId to {kinopoiskId} ({info.Name})");
                 return (true, kinopoiskId);
             }
@@ -81,7 +83,7 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             return (false, 0);
         }
 
-        public async Task<(bool IsSuccess, int ProviderId)> TryResolveByImdbMatch(T info, ICollection<FilmSearchResponse_films> candidates, CancellationToken? ct = null)
+        public async Task<(bool IsSuccess, int ProviderId)> TryResolveByImdbMatch(T info, ICollection<PoiskKinoMovie> candidates, CancellationToken? ct = null)
         {
             if (info.TryGetProviderId(MetadataProvider.Imdb, out var imdbId))
             {
@@ -91,18 +93,34 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
                 {
                     try
                     {
-                        var film = await _kinopoiskApiClient.GetSingleFilm(candidate.FilmId, ct);
-
-                        if (imdbId == film?.ImdbId)
+                        if (!string.IsNullOrWhiteSpace(candidate.ExternalId?.Imdb))
                         {
-                            _logger.LogDebug($"Found match: {candidate.FilmId} '{film.GetLocalName()}', ImdbId '{film?.ImdbId}', setting KinopoiskProviderId to {candidate.FilmId}");
-                            return (true, candidate.FilmId);
+                            if (imdbId == candidate.ExternalId.Imdb)
+                                return (true, candidate.Id);
+                            continue;
+                        }
+                        var film = await _kinopoiskApiClient.GetMovie(candidate.Id, ct ?? CancellationToken.None);
+
+                        if (imdbId == film?.ExternalId?.Imdb)
+                        {
+                            _logger.LogDebug($"Found match: {candidate.Id} '{film.GetLocalName()}', ImdbId '{film?.ExternalId?.Imdb}', setting KinopoiskProviderId to {candidate.Id}");
+                            return (true, candidate.Id);
                         }
 
-                        _logger.LogDebug($"Film {candidate.FilmId} '{film.GetLocalName()}' has ImdbId '{film?.ImdbId}', skipping, {candidates.Count - ++index} candidates left...");
-                    } catch (Exception e)
+                        _logger.LogDebug($"Film {candidate.Id} '{film.GetLocalName()}' has ImdbId '{film?.ExternalId?.Imdb}', skipping, {candidates.Count - ++index} candidates left...");
+                    }
+                    catch (OperationCanceledException) when ((ct ?? CancellationToken.None).IsCancellationRequested)
                     {
-                        _logger.LogError(e, $"Error while retrieving film {candidate.FilmId}");
+                        throw;
+                    }
+                    catch (HttpRequestException e) when (e.StatusCode is HttpStatusCode.Unauthorized
+                        or HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
+                    {
+                        throw;
+                    }
+                    catch (Exception e)
+                    {
+                        _logger.LogError(e, $"Error while retrieving film {candidate.Id}");
                         continue;
                     }
                 }
@@ -111,11 +129,11 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             return (false, 0);
         }
 
-        public Task<(bool IsSuccess, int ProviderId)> TryResolveBySingleCandidateLeft(T info, ICollection<FilmSearchResponse_films> candidates, CancellationToken? ct = null)
+        public Task<(bool IsSuccess, int ProviderId)> TryResolveBySingleCandidateLeft(T info, ICollection<PoiskKinoMovie> candidates, CancellationToken? ct = null)
         {
             if (candidates.Count == 1)
             {
-                var kinopoiskId = candidates.Single().FilmId;
+                var kinopoiskId = candidates.Single().Id;
                 _logger.LogDebug($"There is single candidate left, setting KinopoiskProviderId to {kinopoiskId} ({info.Name})");
                 return Task.FromResult((true, kinopoiskId));
             }
@@ -123,17 +141,16 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             return Task.FromResult((false, 0));
         }
 
-        public ICollection<FilmSearchResponse_films> FilterByYear(T info, ICollection<FilmSearchResponse_films> candidates)
+        public ICollection<PoiskKinoMovie> FilterByYear(T info, ICollection<PoiskKinoMovie> candidates)
         {
             if (!info.Year.HasValue)
             {
                 _logger.LogDebug($"Can't filter by year, no year set in metadata...");
-                return Array.Empty<FilmSearchResponse_films>();
+                return Array.Empty<PoiskKinoMovie>();
             }
 
-            var targetYear = info.Year.Value.ToString();
-            var res = candidates.Where(f => f.Year == targetYear).ToArray();
-            _logger.LogDebug($"Filtered by year {targetYear}, {res.Length} results left...");
+            var res = candidates.Where(f => f.Year == info.Year.Value).ToArray();
+            _logger.LogDebug($"Filtered by year {info.Year.Value}, {res.Length} results left...");
             return res;
         }
     }

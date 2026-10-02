@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
-using KinopoiskUnofficialInfo.ApiClient;
+using PoiskKino.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Providers;
@@ -14,11 +14,11 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 {
     public class PersonMetadataProvider : BaseMetadataProvider, IRemoteMetadataProvider<Person, PersonLookupInfo>
     {
-        private readonly IKinopoiskApiClient _apiClient;
+        private readonly IPoiskKinoApiClient _apiClient;
         private readonly IProviderIdResolver<PersonLookupInfo> _providerIdResolver;
         private readonly ILogger<PersonMetadataProvider> _logger;
 
-        public PersonMetadataProvider(IKinopoiskApiClient apiClient, IProviderIdResolver<PersonLookupInfo> providerIdResolver, ILogger<PersonMetadataProvider> logger, IHttpClientFactory httpClientFactory)
+        public PersonMetadataProvider(IPoiskKinoApiClient apiClient, IProviderIdResolver<PersonLookupInfo> providerIdResolver, ILogger<PersonMetadataProvider> logger, IHttpClientFactory httpClientFactory)
             : base(httpClientFactory)
         {
             _apiClient = apiClient ?? throw new System.ArgumentNullException(nameof(apiClient));

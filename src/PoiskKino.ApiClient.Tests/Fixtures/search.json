@@ -1,0 +1,10 @@
+{
+  "docs": [
+    { "id": 123, "name": "Тестовый фильм", "year": 2026, "externalId": { "imdb": "tt123" }, "poster": { "url": "https://example.com/poster.jpg" }, "isSeries": false },
+    { "id": 124, "name": "Тестовый сериал", "alternativeName": null, "year": 2025, "poster": null, "externalId": null, "isSeries": true }
+  ],
+  "total": 22,
+  "limit": 20,
+  "page": 2,
+  "pages": 2
+}

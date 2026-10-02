@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
-using KinopoiskUnofficialInfo.ApiClient;
+using PoiskKino.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
@@ -18,10 +18,10 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         where TLookupInfoType : ItemLookupInfo, new()
     {
         private readonly ILogger _logger;
-        private readonly IKinopoiskApiClient _apiClient;
+        private readonly IPoiskKinoApiClient _apiClient;
         private readonly IProviderIdResolver<TLookupInfoType> _providerIdResolver;
 
-        public BaseVideoMetadataProvider(IKinopoiskApiClient kinopoiskApiClient, IProviderIdResolver<TLookupInfoType> providerIdResolver, ILogger logger, IHttpClientFactory httpClientFactory)
+        public BaseVideoMetadataProvider(IPoiskKinoApiClient kinopoiskApiClient, IProviderIdResolver<TLookupInfoType> providerIdResolver, ILogger logger, IHttpClientFactory httpClientFactory)
             : base(httpClientFactory)
         {
             _logger = logger ?? throw new System.ArgumentNullException(nameof(logger));
@@ -29,7 +29,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             _providerIdResolver = providerIdResolver ?? throw new System.ArgumentNullException(nameof(providerIdResolver));
         }
 
-        protected abstract TItemType ConvertResponseToItem(Film apiResponse);
+        protected abstract TItemType ConvertResponseToItem(PoiskKinoMovie apiResponse);
 
         public async Task<MetadataResult<TItemType>> GetMetadata(TLookupInfoType info, CancellationToken cancellationToken)
         {
@@ -44,27 +44,18 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             if (!resolveResult)
                 return result;
 
-            var film = await _apiClient.GetSingleFilm(kinopoiskId, cancellationToken);
+            var film = await _apiClient.GetMovie(kinopoiskId, cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
 
             result.Item = ConvertResponseToItem(film);
-            if (result.Item != null)
-                result.HasMetadata = true;
+            if (result.Item is null)
+                return result;
+            result.HasMetadata = true;
 
-            var staff = await _apiClient.GetStaff(kinopoiskId, cancellationToken);
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var sanitizedPersons = await SanitizeEmptyImagePersonInfos(staff.ToPersonInfos());
-            foreach (var item in sanitizedPersons)
-                result.AddPerson(item);
-
-            var trailers = await _apiClient.GetTrailers(kinopoiskId, cancellationToken);
-
-            var remoteTrailers = trailers.ToMediaUrls();
-            if (remoteTrailers is not null)
-                result.Item.RemoteTrailers = remoteTrailers;
+            var sanitizedPersons = await SanitizeEmptyImagePersonInfos(film.Persons.ToPersonInfos());
+            foreach (var person in sanitizedPersons)
+                result.AddPerson(person);
 
             return result;
         }
@@ -72,14 +63,14 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(TLookupInfoType searchInfo, CancellationToken cancellationToken)
         {
             if (searchInfo.TryGetProviderId(Constants.ProviderId, out var kinopoiskIdStr)
-                && int.TryParse(kinopoiskIdStr, out var kinopoiskId))
+                && int.TryParse(kinopoiskIdStr, out var kinopoiskId) && kinopoiskId > 0)
             {
-                var singleResult = (await _apiClient.GetSingleFilm(kinopoiskId, cancellationToken)).ToRemoteSearchResult();
-                return Enumerable.Repeat(singleResult, 1);
+                var singleResult = (await _apiClient.GetMovie(kinopoiskId, cancellationToken)).ToRemoteSearchResult();
+                return singleResult is null ? Enumerable.Empty<RemoteSearchResult>() : new[] { singleResult };
             }
             else
             {
-                return (await _apiClient.SearchByKeyword(searchInfo.Name, cancellationToken: cancellationToken)).ToRemoteSearchResults(_logger);
+                return (await _apiClient.SearchMovies(searchInfo.Name, cancellationToken: cancellationToken)).ToRemoteSearchResults();
             }
         }
 

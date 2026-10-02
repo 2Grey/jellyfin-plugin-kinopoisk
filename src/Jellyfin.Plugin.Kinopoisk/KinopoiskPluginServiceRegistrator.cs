@@ -1,6 +1,6 @@
 using System.Net.Http;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
-using KinopoiskUnofficialInfo.ApiClient;
+using PoiskKino.ApiClient;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Entities;
@@ -18,15 +18,16 @@ namespace Jellyfin.Plugin.Kinopoisk
     {
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
-            serviceCollection.AddSingleton((sp) => new KinopoiskApiClient(
-                Plugin.Instance.Configuration.ApiToken,
-                sp.GetRequiredService<ILogger<KinopoiskApiClient>>(),
+            serviceCollection.AddHttpClient(PoiskKinoApiClient.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            serviceCollection.AddSingleton((sp) => new PoiskKinoApiClient(
+                () => Plugin.Instance.Configuration.PoiskKinoApiToken,
+                sp.GetRequiredService<ILogger<PoiskKinoApiClient>>(),
                 sp.GetRequiredService<IHttpClientFactory>()
             ));
-            serviceCollection.AddSingleton<IKinopoiskApiClient>((sp) => new CachedKinopoiskApiClient(
-                sp.GetRequiredService<KinopoiskApiClient>(),
-                sp.GetRequiredService<IMemoryCache>(),
-                sp.GetRequiredService<ILogger<CachedKinopoiskApiClient>>()
+            serviceCollection.AddSingleton<IPoiskKinoApiClient>((sp) => new CachedPoiskKinoApiClient(
+                sp.GetRequiredService<PoiskKinoApiClient>(),
+                sp.GetRequiredService<IMemoryCache>()
             ));
 
             serviceCollection.AddSingleton<IProviderIdResolver<MovieInfo>, VideoResolver<MovieInfo>>();

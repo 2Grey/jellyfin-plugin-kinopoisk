@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers;
-using KinopoiskUnofficialInfo.ApiClient;
+using PoiskKino.ApiClient;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
@@ -14,11 +14,11 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 {
     public class PersonImageProvider : BaseImageProvider
     {
-        private readonly IKinopoiskApiClient _apiClient;
+        private readonly IPoiskKinoApiClient _apiClient;
         private readonly IProviderIdResolver<BaseItem> _providerIdResolver;
         private readonly ILogger<PersonImageProvider> _logger;
 
-        public PersonImageProvider(IKinopoiskApiClient kinopoiskApiClient, IProviderIdResolver<BaseItem> providerIdResolver, ILogger<PersonImageProvider> logger, IHttpClientFactory httpClientFactory)
+        public PersonImageProvider(IPoiskKinoApiClient kinopoiskApiClient, IProviderIdResolver<BaseItem> providerIdResolver, ILogger<PersonImageProvider> logger, IHttpClientFactory httpClientFactory)
             : base(httpClientFactory)
         {
             _apiClient = kinopoiskApiClient ?? throw new System.ArgumentNullException(nameof(kinopoiskApiClient));
@@ -39,7 +39,8 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
             var person = await _apiClient.GetPerson(kinopoiskId, cancellationToken);
 
-            var res = new[] { person.ToRemoteImageInfo() };
+            var image = person.ToRemoteImageInfo();
+            var res = image is null ? Enumerable.Empty<RemoteImageInfo>() : new[] { image };
             return await FilterEmptyImages(res);
         }
 

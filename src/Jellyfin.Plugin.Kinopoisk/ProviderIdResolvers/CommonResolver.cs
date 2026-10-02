@@ -21,7 +21,7 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             var kinopoiskIdStr = info.GetProviderId(Constants.ProviderId);
 
             // Try to get from stored metadata
-            if (!string.IsNullOrEmpty(kinopoiskIdStr) && int.TryParse(kinopoiskIdStr, out var result))
+            if (!string.IsNullOrEmpty(kinopoiskIdStr) && int.TryParse(kinopoiskIdStr, out var result) && result > 0)
             {
                 _logger.LogDebug($"Got KinopoiskProviderId from metadata ({result})");
                 return Task.FromResult((true, result));

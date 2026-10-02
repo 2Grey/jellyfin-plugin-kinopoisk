@@ -2,462 +2,210 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using KinopoiskUnofficialInfo.ApiClient;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
-using Microsoft.Extensions.Logging;
-using Jellyfin.Data.Enums;
-using Jellyfin.Extensions;
+using PoiskKino.ApiClient;
 
 namespace Jellyfin.Plugin.Kinopoisk
 {
     public static class ApiModelExtensions
     {
-        public static RemoteSearchResult ToRemoteSearchResult(this Film src)
+        public static RemoteSearchResult ToRemoteSearchResult(this PoiskKinoMovie src)
         {
-            if (src is null)
+            if (src is null || src.Id <= 0)
                 return null;
 
-            var res = new RemoteSearchResult() {
+            var result = new RemoteSearchResult
+            {
                 Name = src.GetLocalName(),
-                ImageUrl = src.PosterUrl,
+                ImageUrl = GetImageUrl(src.Poster),
                 PremiereDate = src.GetPremiereDate(),
-                Overview = src.Description,
+                ProductionYear = src.Year,
+                Overview = src.Description ?? src.ShortDescription,
                 SearchProviderName = Constants.ProviderName
             };
-            res.SetProviderId(Constants.ProviderId, Convert.ToString(src.KinopoiskId));
-
-            return res;
+            result.SetProviderId(Constants.ProviderId, src.Id.ToString(CultureInfo.InvariantCulture));
+            return result;
         }
 
-        public static IEnumerable<RemoteSearchResult> ToRemoteSearchResults(this FilmSearchResponse src, ILogger logger)
+        public static IEnumerable<RemoteSearchResult> ToRemoteSearchResults(this MovieSearchResponse src)
+            => (src?.Docs ?? Enumerable.Empty<PoiskKinoMovie>())
+                .Select(movie => movie.ToRemoteSearchResult()).Where(result => result != null);
+
+        public static Movie ToMovie(this PoiskKinoMovie src)
         {
-            if (src?.Films is null)
-                return Enumerable.Empty<RemoteSearchResult>();
-
-            return src.Films
-                .Select(s => s.ToRemoteSearchResult(logger))
-                .Where(s => s != null);
-        }
-
-        public static RemoteSearchResult ToRemoteSearchResult(this FilmSearchResponse_films src, ILogger logger)
-        {
-            try {
-                if (src is null)
-                    return null;
-
-                var res = new RemoteSearchResult() {
-                    Name = src.GetLocalName(),
-                    ImageUrl = src.PosterUrl,
-                    PremiereDate = src.GetPremiereDate(),
-                    Overview = src.Description,
-                    SearchProviderName = Constants.ProviderName
-                };
-                res.SetProviderId(Constants.ProviderId, Convert.ToString(src.FilmId));
-
-                return res;
-            }
-            catch (Exception e) {
-                logger.LogError(e, "Exception during parse");
+            if (src is null || src.Id <= 0)
                 return null;
-            }
+            var result = new Movie();
+            FillCommonMovieInfo(src, result);
+            return result;
         }
 
-        public static Series ToSeries(this Film src)
+        public static Series ToSeries(this PoiskKinoMovie src)
         {
-            if (src is null)
+            if (src is null || src.Id <= 0)
                 return null;
-
-            var res = new Series();
-
-            FillCommonFilmInfo(src, res);
-
-            // res.EndDate = src.Data.GetEndDate();
-            // res.Status = src.Data.IsContinuing()
-            //     ? SeriesStatus.Continuing
-            //     : SeriesStatus.Ended;
-
-            return res;
+            var result = new Series();
+            FillCommonMovieInfo(src, result);
+            return result;
         }
 
-        public static Movie ToMovie(this Film src)
+        private static void FillCommonMovieInfo(PoiskKinoMovie src, BaseItem dst)
         {
-            if (src is null)
-                return null;
-
-            var res = new Movie();
-
-            FillCommonFilmInfo(src, res);
-
-            return res;
-        }
-
-        private static void FillCommonFilmInfo(Film src, BaseItem dst)
-        {
-            dst.SetProviderId(Constants.ProviderId, Convert.ToString(src.KinopoiskId));
+            dst.SetProviderId(Constants.ProviderId, src.Id.ToString(CultureInfo.InvariantCulture));
             dst.Name = src.GetLocalName();
-            dst.OriginalTitle = src.GetOriginalNameIfNotSame();
+            var originalName = FirstNonEmpty(src.AlternativeName, src.EnName);
+            dst.OriginalTitle = originalName == dst.Name ? string.Empty : originalName;
             dst.PremiereDate = src.GetPremiereDate();
-            if (1900 < src.Year)
-                dst.ProductionYear = src.Year;
-            if (!string.IsNullOrWhiteSpace(src.Slogan))
-                dst.Tagline = src.Slogan;
-            dst.Overview = src.Description;
-            if (src.Countries != null)
-                dst.ProductionLocations = src.Countries.Select(c => c.Country1).ToArray();
-            if (src.Genres != null)
-                foreach(var genre in src.Genres.Select(c => c.Genre1))
-                    dst.AddGenre(genre);
-            if (!string.IsNullOrEmpty(src.RatingAgeLimits))
-                dst.OfficialRating = $"{src.RatingAgeLimits}+";
-            else
-                dst.OfficialRating = src.RatingMpaa;
-
-            dst.CommunityRating = (float)src.RatingKinopoisk;
-            if (dst.CommunityRating < 0.1)
-                dst.CommunityRating = (float)src.RatingImdb;
-            if (dst.CommunityRating < 0.1)
-                dst.CommunityRating = null;
-            dst.CriticRating = src.GetCriticRatingAsTenPointBased();
-
-            if (!string.IsNullOrWhiteSpace(src.ImdbId))
-                dst.SetProviderId(MetadataProvider.Imdb, src.ImdbId);
+            dst.ProductionYear = src.Year;
+            dst.Tagline = src.Slogan;
+            dst.Overview = src.Description ?? src.ShortDescription;
+            dst.ProductionLocations = (src.Countries ?? Enumerable.Empty<NamedValue>())
+                .Select(country => country?.Name).Where(name => !string.IsNullOrWhiteSpace(name)).ToArray();
+            foreach (var genre in src.Genres ?? Enumerable.Empty<NamedValue>())
+                if (!string.IsNullOrWhiteSpace(genre?.Name))
+                    dst.AddGenre(genre.Name);
+            dst.OfficialRating = src.AgeRating.HasValue
+                ? src.AgeRating.Value.ToString(CultureInfo.InvariantCulture) + "+"
+                : src.RatingMpaa?.ToUpperInvariant();
+            dst.CommunityRating = PositiveRating(src.Rating?.Kp) ?? PositiveRating(src.Rating?.Imdb);
+            dst.CriticRating = PositiveRating(src.Rating?.RussianFilmCritics) ?? PositiveRating(src.Rating?.FilmCritics);
+            if (!string.IsNullOrWhiteSpace(src.ExternalId?.Imdb))
+                dst.SetProviderId(MetadataProvider.Imdb, src.ExternalId.Imdb);
+            if (src.ExternalId?.Tmdb > 0)
+                dst.SetProviderId(MetadataProvider.Tmdb, src.ExternalId.Tmdb.Value.ToString(CultureInfo.InvariantCulture));
+            dst.RemoteTrailers = src.Videos.ToMediaUrls();
         }
 
-        public static float? GetCriticRatingAsTenPointBased(this Film src)
+        private static float? PositiveRating(double? rating) => rating >= 0.1 ? (float?)rating.Value : null;
+
+        public static string GetLocalName(this PoiskKinoMovie src)
+            => FirstNonEmpty(src?.Name, src?.AlternativeName, src?.EnName);
+
+        public static DateTime? GetPremiereDate(this PoiskKinoMovie src)
         {
-            if (src is null)
-                return null;
-
-            if (src.RatingRfCritics > 0.0)
-                return (float)src.RatingRfCritics;
-
-            if (src.RatingFilmCritics > 0.0)
-                return (float)src.RatingFilmCritics;
-
-            return null;
+            var premiere = src?.Premiere?.World.ParseDate() ?? src?.Premiere?.Russia.ParseDate();
+            if (premiere.HasValue)
+                return premiere;
+            return src?.Year is > 0 and <= 9999 ? new DateTime(src.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null;
         }
 
-        public static IEnumerable<RemoteImageInfo> ToRemoteImageInfos(this Film src)
+        public static IEnumerable<RemoteImageInfo> ToRemoteImageInfos(this PoiskKinoMovie src)
         {
-            var res = Enumerable.Empty<RemoteImageInfo>();
-            if (src is null)
-                return res;
-
-            if (src?.PosterUrl != null)
-            {
-                var mainPoster = new RemoteImageInfo(){
-                    Type = ImageType.Primary,
-                    Url = src.PosterUrl,
-                    Language = Constants.ProviderMetadataLanguage,
-                    ProviderName = Constants.ProviderName
-                };
-                res = res.Concat(Enumerable.Repeat(mainPoster, 1));
-            }
-
-            // if (src.Images != null)
-            // {
-            //     if (src.Images.Posters != null)
-            //         res = res.Concat(src.Images.Posters.ToRemoteImageInfos(ImageType.Primary));
-            //     if  (src.Images.Backdrops != null)
-            //         res = res.Concat(src.Images.Backdrops.ToRemoteImageInfos(ImageType.Backdrop));
-            // }
-
-            return res;
+            var poster = GetImageUrl(src?.Poster);
+            if (!string.IsNullOrWhiteSpace(poster))
+                yield return CreateImage(poster, ImageType.Primary);
+            var backdrop = GetImageUrl(src?.Backdrop);
+            if (!string.IsNullOrWhiteSpace(backdrop))
+                yield return CreateImage(backdrop, ImageType.Backdrop);
         }
 
-        // public static IEnumerable<RemoteImageInfo> ToRemoteImageInfos(this IEnumerable<Images_posters> src, ImageType imageType)
-        // {
-        //     return src.Select(s => s.ToRemoteImageInfo(imageType))
-        //         .Where(s => s != null);
-        // }
+        private static string GetImageUrl(ApiImage image) => FirstNonEmpty(image?.Url, image?.PreviewUrl);
 
-        // public static RemoteImageInfo ToRemoteImageInfo(this Images_posters src, ImageType imageType)
-        // {
-        //     if (src is null)
-        //         return null;
-
-        //     return new RemoteImageInfo(){
-        //         Type = imageType,
-        //         Url = src.Url,
-        //         Language = src.Language,
-        //         Height = src.Height,
-        //         Width = src.Width,
-        //         ProviderName = Constants.ProviderName
-        //     };
-        // }
-
-        public static IReadOnlyList<MediaUrl> ToMediaUrls(this VideoResponse src)
+        private static RemoteImageInfo CreateImage(string url, ImageType type) => new()
         {
-            if (src is null || src.Items is null || src.Items.Count < 1)
-                return null;
+            Type = type,
+            Url = url,
+            Language = Constants.ProviderMetadataLanguage,
+            ProviderName = Constants.ProviderName
+        };
 
-            return src.Items.Select(t => t.ToMediaUrl())
-                .Where(mu => mu != null)
-                .ToList();
-        }
-
-        public static MediaUrl ToMediaUrl(this VideoResponse_items src) {
-            if (src is null || !VideoResponse_itemsSite.YOUTUBE.Equals(src.Site))
-                return null;
-
-            return new MediaUrl
-            {
-                Name = src.Name,
-                Url = src.Url.SanitizeYoutubeLink()
-            };
-        }
+        public static IReadOnlyList<MediaUrl> ToMediaUrls(this MovieVideos src)
+            => (src?.Trailers ?? Enumerable.Empty<MovieVideo>())
+                .Where(video => video != null)
+                .Select(video => new MediaUrl { Name = video.Name, Url = video.Url.SanitizeYoutubeLink() })
+                .Where(video => video.Url != null)
+                .ToArray();
 
         public static string SanitizeYoutubeLink(this string src)
         {
-            // Jellyfin web currently recognizes only https://www.youtube.com/watch?v=xxx links
-            return src
-                .Replace("http://", "https://")
-                .Replace("https://youtu.be/", "https://www.youtube.com/watch?v=")
-                .Replace("https://www.youtube.com/v/", "https://www.youtube.com/watch?v=");
-        }
-
-        public static RemoteImageInfo ToRemoteImageInfo(this PersonResponse src)
-        {
-            if (src is null || string.IsNullOrEmpty(src.PosterUrl))
+            if (!Uri.TryCreate(src, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
                 return null;
-
-            return new RemoteImageInfo(){
-                Type = ImageType.Primary,
-                Url = src.PosterUrl,
-                ProviderName = Constants.ProviderName
-            };
-        }
-
-        public static PersonInfo ToPersonInfo(this StaffResponse src)
-        {
-            if (src is null)
-                return null;
-
-            var res = new PersonInfo()
+            string videoId = null;
+            if (uri.Host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase))
+                videoId = uri.AbsolutePath.Trim('/');
+            else if (new[] { "youtube.com", "www.youtube.com", "m.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com" }
+                .Contains(uri.Host, StringComparer.OrdinalIgnoreCase))
             {
-                Name = src.NameRu,
-                ImageUrl = src.PosterUrl,
-                Role = src.ProfessionText ?? null,
-                Type = src.ProfessionKey.ToPersonType()
-            };
-            if (string.IsNullOrWhiteSpace(res.Name))
-                res.Name = src.NameEn ?? string.Empty;
-            if (src.AdditionalProperties.TryGetValue("description", out var description))
-                res.Role = description as string;
-
-            res.SetProviderId(Constants.ProviderId, Convert.ToString(src.StaffId));
-
-            return res;
-        }
-
-        public static IEnumerable<PersonInfo> ToPersonInfos(this ICollection<StaffResponse> src)
-        {
-            var res = src.Select(s => s.ToPersonInfo())
-                .Where(s => s != null && !string.IsNullOrWhiteSpace(s.Name))
-                .ToArray();
-
-            var i = 0;
-            foreach(var item in res)
-                item.SortOrder = ++i;
-
-            return res;
-        }
-
-        public static PersonKind ToPersonType(this StaffResponseProfessionKey src)
-        {
-            return src switch
-            {
-                StaffResponseProfessionKey.ACTOR => PersonKind.Actor,
-                StaffResponseProfessionKey.DIRECTOR
-                    or StaffResponseProfessionKey.VOICE_DIRECTOR
-                    or StaffResponseProfessionKey.OPERATOR => PersonKind.Director,
-                StaffResponseProfessionKey.WRITER => PersonKind.Writer,
-                StaffResponseProfessionKey.COMPOSER => PersonKind.Composer,
-                StaffResponseProfessionKey.PRODUCER
-                    or StaffResponseProfessionKey.PRODUCER_USSR => PersonKind.Producer,
-                StaffResponseProfessionKey.EDITOR => PersonKind.Editor,
-                StaffResponseProfessionKey.TRANSLATOR => PersonKind.Translator,
-                _ => PersonKind.Unknown,
-            };
-        }
-
-        public static DateTime? ParseDate(this string src){
-            if (src == null)
-                return null;
-
-            if (DateTime.TryParseExact(src, "o", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var res))
-                return res;
-
-            return null;
-        }
-
-        public static DateTime? GetPremiereDate(this Film src)
-        {
-            // var res = src.IsRussianSpokenOriginated()
-            //     ? src.PremiereRu.ParseDate()
-            //     : src.PremiereWorld.ParseDate();
-            // if (src.PremiereRu.ParseDate() < res)
-            //     res = src.PremiereRu.ParseDate();
-            // if (src.PremiereWorld.ParseDate() < res)
-            //     res = src.PremiereWorld.ParseDate();
-            // if (src.PremiereDigital.ParseDate() < res)
-            //     res = src.PremiereDigital.ParseDate();
-            // if (src.PremiereDvd.ParseDate() < res)
-            //     res = src.PremiereDvd.ParseDate();
-            // if (src.PremiereBluRay.ParseDate() < res)
-            //     res = src.PremiereBluRay.ParseDate();
-
-            // if (res.HasValue)
-            //     return res;
-
-            if (src.Year > 1900)
-                return new DateTime(src.Year, 1, 1);
-
-            return null;
-        }
-
-        public static DateTime? GetPremiereDate(this FilmSearchResponse_films src)
-        {
-            var firstYear = GetFirstYear(src.Year);
-            if (firstYear != null)
-                return new DateTime(firstYear.Value, 1, 1);
-
-            return null;
-        }
-
-        public static string GetLocalName(this Film src)
-        {
-            var res = src?.NameRu;
-            if (string.IsNullOrWhiteSpace(res))
-                res = src?.NameOriginal;
-            if (string.IsNullOrWhiteSpace(res))
-                res = src?.NameEn;
-            return res;
-        }
-
-        public static string GetLocalName(this FilmSearchResponse_films src)
-        {
-            var res = src?.NameRu;
-            if (string.IsNullOrWhiteSpace(res))
-                res = src?.NameEn;
-            return res;
-        }
-
-        public static string GetOriginalName(this Film src)
-            => src?.NameOriginal ??
-                (src.IsRussianSpokenOriginated()
-                    ? src?.NameRu
-                    : src?.NameEn);
-
-        public static string GetOriginalNameIfNotSame(this Film src)
-        {
-            var localName = src.GetLocalName();
-            var originalName = src.GetOriginalName();
-            if (!string.IsNullOrWhiteSpace(originalName) && !string.Equals(localName, originalName))
-                return originalName;
-
-            return string.Empty;
-        }
-
-        public static bool IsRussianSpokenOriginated(this Film src)
-            => src?.Countries?.IsRussianSpokenOriginated() ?? false;
-
-        public static bool IsRussianSpokenOriginated(this IEnumerable<Country> src)
-        {
-            if (src is null)
-                return false;
-
-            foreach(var country in src)
-                switch(country.Country1)
-                {
-                    case "Россия":
-                        return true;
-                }
-
-            return false;
-        }
-
-        public static int? GetFirstYear(string years)
-        {
-            if (string.IsNullOrWhiteSpace(years) || years.ToLower() == "null")
-                return null;
-
-            years = years.Trim();
-
-            if (int.TryParse(years, out var res))
-                return res;
-
-            var i = 0;
-            while (true) {
-                if (i > 4)
-                    return null;
-                if (!char.IsDigit(years[i]))
-                    break;
-                i++;
+                var parts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2 && (parts[0] == "embed" || parts[0] == "v" || parts[0] == "shorts"))
+                    videoId = parts[1];
+                else if (uri.AbsolutePath == "/watch")
+                    videoId = uri.Query.TrimStart('?').Split('&').Select(part => part.Split('=', 2))
+                        .FirstOrDefault(part => part.Length == 2 && part[0] == "v")?.ElementAt(1);
             }
-
-            return Convert.ToInt32(years.Substring(0, i));
+            if (string.IsNullOrWhiteSpace(videoId) || videoId.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-' && c != '_'))
+                return null;
+            return "https://www.youtube.com/watch?v=" + videoId;
         }
 
-        public static bool IsСontinuing(string years)
-            => years?.EndsWith("-...") ?? false;
-
-        public static int? GetLastYear(string years)
+        public static PersonInfo ToPersonInfo(this MoviePerson src)
         {
-            if (string.IsNullOrWhiteSpace(years))
+            var name = FirstNonEmpty(src?.Name, src?.EnName);
+            if (src is null || src.Id <= 0 || name is null)
                 return null;
-
-            years = years.Trim();
-
-            if (int.TryParse(years, out var res))
-                return res;
-
-            var i = 0;
-            int startindex() => years.Length - 1 - i;
-            while (true) {
-                if (i > 4)
-                    return null;
-                if (!char.IsDigit(years[startindex()]))
-                {
-                    i--;
-                    break;
-                }
-                i++;
-            }
-
-            return i > 0
-                ? (int?)Convert.ToInt32(years[startindex()..])
-                : null;
-        }
-
-        public static Person ToPerson(this PersonResponse src)
-        {
-            if (src is null)
-                return null;
-
-            var res = new Person()
+            var result = new PersonInfo
             {
-                Name = src.GetLocalName(),
+                Name = name,
+                ImageUrl = src.Photo,
+                Role = FirstNonEmpty(src.Description, src.Profession),
+                Type = FirstNonEmpty(src.EnProfession, src.Profession).ToPersonType()
+            };
+            result.SetProviderId(Constants.ProviderId, src.Id.ToString(CultureInfo.InvariantCulture));
+            return result;
+        }
+
+        public static IEnumerable<PersonInfo> ToPersonInfos(this IEnumerable<MoviePerson> src)
+        {
+            var people = (src ?? Enumerable.Empty<MoviePerson>()).Select(person => person.ToPersonInfo())
+                .Where(person => person != null).ToArray();
+            for (var i = 0; i < people.Length; i++)
+                people[i].SortOrder = i + 1;
+            return people;
+        }
+
+        public static PersonKind ToPersonType(this string profession) => profession?.Trim().ToLowerInvariant() switch
+        {
+            "actor" or "voice_actor" or "актеры" or "актёры" or "актер" or "актёр" => PersonKind.Actor,
+            "director" or "voice_director" or "operator" or "режиссеры" or "режиссёры" or "операторы" => PersonKind.Director,
+            "writer" or "сценаристы" => PersonKind.Writer,
+            "composer" or "композиторы" => PersonKind.Composer,
+            "producer" or "producer_ussr" or "продюсеры" or "директора фильма" => PersonKind.Producer,
+            "editor" or "монтажеры" or "монтажёры" => PersonKind.Editor,
+            "translator" or "переводчики" => PersonKind.Translator,
+            _ => PersonKind.Unknown
+        };
+
+        public static Person ToPerson(this PoiskKinoPerson src)
+        {
+            if (src is null || src.Id <= 0)
+                return null;
+            var result = new Person
+            {
+                Name = FirstNonEmpty(src.Name, src.EnName),
                 PremiereDate = src.Birthday.ParseDate(),
-                EndDate = src.Death.ParseDate()
+                EndDate = src.Death.ParseDate(),
+                ProductionLocations = (src.BirthPlace ?? Enumerable.Empty<PlaceValue>())
+                    .Select(place => place?.Value).Where(value => !string.IsNullOrWhiteSpace(value)).ToArray()
             };
-
-            if (!string.IsNullOrWhiteSpace(src.Birthplace))
-                res.ProductionLocations = new[] { src.Birthplace };
-
-            return res;
+            result.SetProviderId(Constants.ProviderId, src.Id.ToString(CultureInfo.InvariantCulture));
+            return result;
         }
 
-        public static string GetLocalName(this PersonResponse src)
+        public static RemoteImageInfo ToRemoteImageInfo(this PoiskKinoPerson src)
+            => string.IsNullOrWhiteSpace(src?.Photo) ? null : CreateImage(src.Photo, ImageType.Primary);
+
+        public static DateTime? ParseDate(this string src)
         {
-            var res = src?.NameRu;
-            if (string.IsNullOrWhiteSpace(res))
-                res = src?.NameEn;
-            return res;
+            var formats = new[] { "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK", "yyyy-MM-dd", "dd.MM.yyyy" };
+            return DateTime.TryParseExact(src, formats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var value) ? value : null;
         }
+
+        private static string FirstNonEmpty(params string[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
     }
 }

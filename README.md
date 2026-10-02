@@ -2,6 +2,8 @@
 
 Fetches metadata from https://www.kinopoisk.ru/. This site is popular in the Russian-speaking community and contains almost no English-language information, so further description will be in Russian.
 
+С версии 12.1.1.0 данные загружаются через [PoiskKino API](https://poiskkino.dev/). Идентификаторы КиноПоиска и шаблоны `kp-12345` / `kp12345` сохраняются.
+
 ## Установка
 
 Текущая версия исходного кода рассчитана на Jellyfin 12.1 и .NET 10. Для Jellyfin 10.x используйте предыдущие версии плагина.
@@ -18,7 +20,11 @@ Fetches metadata from https://www.kinopoisk.ru/. This site is popular in the Rus
 
 Параметры плагина искать в: Администрирование - Панель - Расширенное - Плагины - вкладка "Мои плагины" - КиноПоиск - "три точки" - Параметры
 
-Если плагин не работает или работает плохо - попробуйте зарегистрировать (и указать в параметрах) свой собственный ApiToken (на сайте https://kinopoiskapiunofficial.tech). По-умолчанию прописан общий, ограничение порядка 10 запросов/сек - для общего ApiToken быстро заканчивается.
+Получите личный API-ключ на [PoiskKino](https://poiskkino.dev/) и укажите его в поле «API-ключ PoiskKino» в настройках плагина. Общего ключа по умолчанию нет. После перехода с предыдущей версии нужно заполнить новое поле: ключ прежнего API не подходит и автоматически не переносится.
+
+Ключ читается при каждом запросе, поэтому после его сохранения перезапуск сервера не требуется. Данные кэшируются на одну минуту. Карточка фильма уже содержит актёров, изображения и трейлеры; дополнительные запросы к API для актёров и трейлеров не выполняются.
+
+Используется API v1.5: `/movie/{id}`, `/movie/search`, `/person/{id}` с заголовком `X-API-KEY`. [Документация API](https://api.poiskkino.dev/documentation). Ответ `404` для фильма или персоны означает отсутствие данных; ошибки авторизации и лимитов запросов передаются в журнал Jellyfin.
 
 ## Использование
 
@@ -44,4 +50,6 @@ dotnet build src/Jellyfin.Plugin.Kinopoisk.sln --configuration Release
 dotnet test src/Jellyfin.Plugin.Kinopoisk.sln --configuration Release --no-build
 ```
 
-Для ручной установки скопируйте `Jellyfin.Plugin.Kinopoisk.dll` и `KinopoiskUnofficialInfo.ApiClient.dll` из соответствующих каталогов `src/*/bin/Release/net10.0/` в отдельную папку плагина внутри каталога `plugins` Jellyfin и перезапустите сервер. При замене установленного плагина уберите его старую папку из `plugins`, сохранив `plugins/configurations`. Библиотеки Jellyfin и Microsoft из результатов сборки копировать не нужно: их предоставляет сервер.
+Тесты выполняются без реальных запросов к API. Тестовые JSON-ответы составлены по схеме PoiskKino; проверку на реальном сервере нужно выполнять с собственным API-ключом.
+
+Для ручной установки скопируйте `Jellyfin.Plugin.Kinopoisk.dll` и `PoiskKino.ApiClient.dll` из соответствующих каталогов `src/*/bin/Release/net10.0/` в отдельную папку плагина внутри каталога `plugins` Jellyfin и перезапустите сервер. При замене установленного плагина уберите его старую папку из `plugins`, сохранив `plugins/configurations`. Библиотеки Jellyfin и Microsoft из результатов сборки копировать не нужно: их предоставляет сервер.

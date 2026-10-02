@@ -1,0 +1,12 @@
+{
+  "id": 456,
+  "name": "Тестовый актёр",
+  "enName": "Example actor",
+  "photo": "https://example.com/person.jpg",
+  "birthday": "1980-02-03T00:00:00.000Z",
+  "death": null,
+  "birthPlace": [{ "value": "Москва" }, { "value": "Россия" }],
+  "sex": "новое значение",
+  "spouses": [{ "id": 789, "sex": null }],
+  "profession": [{ "value": "актер" }]
+}
