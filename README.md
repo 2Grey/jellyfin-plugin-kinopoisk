@@ -4,6 +4,10 @@ Fetches metadata from https://www.kinopoisk.ru/. This site is popular in the Rus
 
 ## Установка
 
+Текущая версия исходного кода рассчитана на Jellyfin 12.1 и .NET 10. Для Jellyfin 10.x используйте предыдущие версии плагина.
+
+Сборку для Jellyfin 12.1 можно установить вручную по инструкции ниже. Установка через каталог зависит от наличия опубликованного выпуска с ABI 12.1.0.0.
+
 Администрирование - Панель - Расширенное - Плагины - вкладка Репозитории - добавить адрес https://raw.githubusercontent.com/LinFor/jellyfin-plugin-kinopoisk/master/dist/manifest.json.
 
 После этого на вкладке Каталог найти "КиноПоиск" (раздел Метаданные) и установить.
@@ -30,3 +34,14 @@ Fetches metadata from https://www.kinopoisk.ru/. This site is popular in the Rus
 - Трейлеры (только те, что лежат на ютубе - Jellyfin-Web не умеет играть трейлеры, лежащие на самом КиноПоиске)
 
 Плагин будет пытаться найти в имени файла (для фильмов) или имени корневой папки (для сериалов) паттерн вида "kp-12345" или "kp12345", где число - id фильма на сайте КиноПоиск.
+
+## Сборка для Jellyfin 12.1
+
+Требуется .NET 10 SDK:
+
+```sh
+dotnet build src/Jellyfin.Plugin.Kinopoisk.sln --configuration Release
+dotnet test src/Jellyfin.Plugin.Kinopoisk.sln --configuration Release --no-build
+```
+
+Для ручной установки скопируйте `Jellyfin.Plugin.Kinopoisk.dll` и `KinopoiskUnofficialInfo.ApiClient.dll` из соответствующих каталогов `src/*/bin/Release/net10.0/` в отдельную папку плагина внутри каталога `plugins` Jellyfin и перезапустите сервер. При замене установленного плагина уберите его старую папку из `plugins`, сохранив `plugins/configurations`. Библиотеки Jellyfin и Microsoft из результатов сборки копировать не нужно: их предоставляет сервер.

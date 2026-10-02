@@ -6,7 +6,7 @@ on:
 env:
   DIST_ARCHIVES_PATH: dist/kinopoisk
   MANIFEST_FILE: dist/manifest.json
-  TARGET_ABI: 10.10.0
+  TARGET_ABI: 12.1.0.0
 
 jobs:
   build:
@@ -16,10 +16,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v6
 
-    - name: Setup .NET 9.0
+    - name: Setup .NET 10.0
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Determine version
       id: version
@@ -94,13 +94,16 @@ jobs:
     - name: Build project
       run: dotnet build --configuration Release --property:Version=${VERSION} ./src
 
+    - name: Test project
+      run: dotnet test --configuration Release --no-build ./src
+
     - name: Package release archive
       run: |
         RELEASE_FILENAME=jellyfin-plugin-kinopoisk_${VERSION}.zip
         RELEASE_FILE=${DIST_ARCHIVES_PATH}/${RELEASE_FILENAME}
         zip --junk-paths $RELEASE_FILE \
-          ./src/Jellyfin.Plugin.Kinopoisk/bin/Release/net9.0/Jellyfin.Plugin.Kinopoisk.dll \
-          ./src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net9.0/KinopoiskUnofficialInfo.ApiClient.dll
+          ./src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/Jellyfin.Plugin.Kinopoisk.dll \
+          ./src/KinopoiskUnofficialInfo.ApiClient/bin/Release/net10.0/KinopoiskUnofficialInfo.ApiClient.dll
         echo "RELEASE_FILENAME=$RELEASE_FILENAME" >> $GITHUB_ENV
         echo "RELEASE_FILE=$RELEASE_FILE" >> $GITHUB_ENV
 

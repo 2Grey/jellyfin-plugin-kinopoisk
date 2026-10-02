@@ -29,18 +29,19 @@
                 pluginUniqueId: '33e6d249-648f-44cd-a9ce-497be06c08df'
             };
 
-            $('#KinopoiskConfigPage').on('pageshow', function () {
+            document.querySelector('#KinopoiskConfigPage').addEventListener('pageshow', function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    $('#ApiToken').val(config.ApiToken).change();
+                    document.querySelector('#ApiToken').value = config.ApiToken;
                     Dashboard.hideLoadingMsg();
                 });
             });
 
-            $('#KinopoiskConfigForm').on('submit', function () {
+            document.querySelector('#KinopoiskConfigForm').addEventListener('submit', function (event) {
+                event.preventDefault();
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(KinopoiskPluginConfig.pluginUniqueId).then(function (config) {
-                    config.ApiToken = $('#ApiToken').val();
+                    config.ApiToken = document.querySelector('#ApiToken').value;
                     ApiClient.updatePluginConfiguration(KinopoiskPluginConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
