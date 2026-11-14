@@ -10,7 +10,7 @@ Fetches metadata from https://www.kinopoisk.ru/. This site is popular in the Rus
 
 Сборку для Jellyfin 12.4 можно установить вручную по инструкции ниже. Установка через каталог зависит от наличия опубликованного выпуска с ABI 12.4.0.0.
 
-Администрирование - Панель - Расширенное - Плагины - вкладка Репозитории - добавить адрес https://raw.githubusercontent.com/LinFor/jellyfin-plugin-kinopoisk/master/dist/manifest.json.
+Администрирование - Панель - Расширенное - Плагины - вкладка Репозитории - добавить адрес https://raw.githubusercontent.com/2Grey/jellyfin-plugin-kinopoisk/master/dist/manifest.json.
 
 После этого на вкладке Каталог найти "КиноПоиск" (раздел Метаданные) и установить.
 
