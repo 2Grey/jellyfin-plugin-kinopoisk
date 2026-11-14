@@ -34,12 +34,16 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
         public abstract IEnumerable<ImageType> GetSupportedImages(BaseItem item);
 
-        protected async Task<IEnumerable<RemoteImageInfo>> FilterEmptyImages(IEnumerable<RemoteImageInfo> images)
+        protected async Task<IEnumerable<RemoteImageInfo>> FilterEmptyImages(IEnumerable<RemoteImageInfo> images, CancellationToken cancellationToken)
         {
-            using var httpClient = new HttpClient(new HttpClientHandler() { AllowAutoRedirect = false }, true);
+            cancellationToken.ThrowIfCancellationRequested();
+            var items = images.ToArray();
+            if (items.Length == 0)
+                return items;
+            using var httpClient = _httpClientFactory.CreateClient(RemoteImageUrlSanitizer.HttpClientName);
             var sanitizer = new RemoteImageUrlSanitizer(httpClient);
-            var res = await Task.WhenAll(images.Select(async i => {
-                var sanitizedUrl = await sanitizer.SanitizeRemoteImageUrl(i.Url);
+            var res = await Task.WhenAll(items.Select(async i => {
+                var sanitizedUrl = await sanitizer.SanitizeRemoteImageUrl(i.Url, cancellationToken);
                 if (string.IsNullOrEmpty(sanitizedUrl))
                     return null;
 

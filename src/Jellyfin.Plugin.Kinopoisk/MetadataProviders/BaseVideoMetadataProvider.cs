@@ -53,7 +53,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
                 return result;
             result.HasMetadata = true;
 
-            var sanitizedPersons = await SanitizeEmptyImagePersonInfos(film.Persons.ToPersonInfos());
+            var sanitizedPersons = await SanitizeEmptyImagePersonInfos(film.Persons.ToPersonInfos(), cancellationToken);
             foreach (var person in sanitizedPersons)
                 result.AddPerson(person);
 
@@ -74,12 +74,16 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
             }
         }
 
-        protected async Task<IEnumerable<PersonInfo>> SanitizeEmptyImagePersonInfos(IEnumerable<PersonInfo> images)
+        protected async Task<IEnumerable<PersonInfo>> SanitizeEmptyImagePersonInfos(IEnumerable<PersonInfo> images, CancellationToken cancellationToken)
         {
-            using var httpClient = new HttpClient(new HttpClientHandler() { AllowAutoRedirect = false }, true);
-            var sanitizer = new RemoteImageUrlSanitizer(httpClient);
-            var res = await Task.WhenAll(images.Select(async p => {
-                p.ImageUrl = await sanitizer.SanitizeRemoteImageUrl(p.ImageUrl);
+            cancellationToken.ThrowIfCancellationRequested();
+            var items = images.ToArray();
+            if (items.Length == 0)
+                return items;
+            using var httpClient = _httpClientFactory.CreateClient(RemoteImageUrlSanitizer.HttpClientName);
+            var sanitizer = new RemoteImageUrlSanitizer(httpClient, _logger);
+            var res = await Task.WhenAll(items.Select(async p => {
+                p.ImageUrl = await sanitizer.SanitizeRemoteImageUrl(p.ImageUrl, cancellationToken);
                 return p;
             }));
 

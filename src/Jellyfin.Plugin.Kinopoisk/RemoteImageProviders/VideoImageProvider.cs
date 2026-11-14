@@ -49,7 +49,7 @@ namespace Jellyfin.Plugin.Kinopoisk.MetadataProviders
 
             var film = await _apiClient.GetMovie(kinopoiskId, cancellationToken);
 
-            return await FilterEmptyImages(film.ToRemoteImageInfos());
+            return await FilterEmptyImages(film.ToRemoteImageInfos(), cancellationToken);
         }
     }
 }
