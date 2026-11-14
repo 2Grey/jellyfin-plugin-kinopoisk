@@ -45,8 +45,8 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             api.Setup(client => client.SearchMovies("Название", 1, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new MovieSearchResponse { Docs = new()
                 {
-                    new PoiskKinoMovie { Id = 1, Year = 2020 },
-                    new PoiskKinoMovie { Id = 2, Year = 2026 }
+                    new PoiskKinoMovie { Id = 1, Name = "Название", Year = 2020 },
+                    new PoiskKinoMovie { Id = 2, Name = "Название", Year = 2026 }
                 } });
             Assert.Equal((true, 2), await CreateResolver(api.Object).TryResolve(new MovieInfo { Name = "Название", Year = 2026 }));
             api.Verify(client => client.SearchMovies("Название", 1, It.IsAny<CancellationToken>()), Times.Once);
