@@ -12,6 +12,76 @@ namespace PoiskKino.ApiClient.Tests
     public class CachedPoiskKinoApiClientTests
     {
         [Fact]
+        public async Task ConcurrentRequestsShareOneCallAndCancellationIsPerWaiter()
+        {
+            var response = new TaskCompletionSource<PoiskKinoMovie>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var inner = new Mock<IPoiskKinoApiClient>(MockBehavior.Strict);
+            inner.Setup(api => api.GetMovie(123, It.IsAny<CancellationToken>())).Returns(response.Task);
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var client = new CachedPoiskKinoApiClient(inner.Object, cache);
+            using var cancellation = new CancellationTokenSource();
+            var cancelled = client.GetMovie(123, cancellation.Token);
+            var waiting = client.GetMovie(123);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+            var movie = new PoiskKinoMovie { Id = 123 };
+            response.SetResult(movie);
+            Assert.Same(movie, await waiting);
+            Assert.Same(movie, await client.GetMovie(123));
+            inner.Verify(api => api.GetMovie(123, CancellationToken.None), Times.Once);
+            inner.VerifyNoOtherCalls();
+        }
+
+        [Fact]
+        public async Task ConcurrentFailuresAreSharedAndNextRequestRetries()
+        {
+            var response = new TaskCompletionSource<PoiskKinoMovie>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var inner = new Mock<IPoiskKinoApiClient>(MockBehavior.Strict);
+            inner.SetupSequence(api => api.GetMovie(123, It.IsAny<CancellationToken>()))
+                .Returns(response.Task).ReturnsAsync(new PoiskKinoMovie { Id = 123 });
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var client = new CachedPoiskKinoApiClient(inner.Object, cache);
+            var first = client.GetMovie(123);
+            var second = client.GetMovie(123);
+            response.SetException(new HttpRequestException("unavailable"));
+            await Assert.ThrowsAsync<HttpRequestException>(() => first);
+            await Assert.ThrowsAsync<HttpRequestException>(() => second);
+            Assert.Equal(123, (await client.GetMovie(123)).Id);
+            inner.Verify(api => api.GetMovie(123, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        }
+
+        [Fact]
+        public async Task DocumentsAndSearchHaveSeparateExpirationPolicies()
+        {
+            var clock = new TestClock();
+#pragma warning disable CS0618
+            using var cache = new MemoryCache(new MemoryCacheOptions { Clock = clock });
+#pragma warning restore CS0618
+            var inner = new Mock<IPoiskKinoApiClient>(MockBehavior.Strict);
+            inner.Setup(api => api.GetMovie(123, It.IsAny<CancellationToken>())).ReturnsAsync(new PoiskKinoMovie { Id = 123 });
+            inner.Setup(api => api.SearchMovies("query", 1, It.IsAny<CancellationToken>())).ReturnsAsync(new MovieSearchResponse());
+            var client = new CachedPoiskKinoApiClient(inner.Object, cache,
+                documentLifetime: TimeSpan.FromMinutes(10), searchLifetime: TimeSpan.FromMinutes(2));
+            await client.GetMovie(123);
+            await client.SearchMovies("query");
+            clock.UtcNow += TimeSpan.FromMinutes(3);
+            await client.GetMovie(123);
+            await client.SearchMovies("query");
+            inner.Verify(api => api.GetMovie(123, It.IsAny<CancellationToken>()), Times.Once);
+            inner.Verify(api => api.SearchMovies("query", 1, It.IsAny<CancellationToken>()), Times.Exactly(2));
+            clock.UtcNow += TimeSpan.FromMinutes(8);
+            await client.GetMovie(123);
+            inner.Verify(api => api.GetMovie(123, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        }
+
+#pragma warning disable CS0618
+        private sealed class TestClock : Microsoft.Extensions.Internal.ISystemClock
+        {
+            public DateTimeOffset UtcNow { get; set; } = DateTimeOffset.UtcNow;
+        }
+#pragma warning restore CS0618
+
+        [Fact]
         public async Task RepeatedMovieRequestsShareTheFullDocument()
         {
             var inner = new Mock<IPoiskKinoApiClient>(MockBehavior.Strict);
