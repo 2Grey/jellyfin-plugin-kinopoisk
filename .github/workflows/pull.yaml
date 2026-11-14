@@ -22,7 +22,7 @@ jobs:
       run: dotnet build --configuration Release --property:Version=1.0.0.0 ./src
 
     - name: Test project
-      run: dotnet test --configuration Release ./src
+      run: dotnet test --configuration Release --no-build ./src
 
     - name: Publish artifacts
       uses: actions/upload-artifact@v4
