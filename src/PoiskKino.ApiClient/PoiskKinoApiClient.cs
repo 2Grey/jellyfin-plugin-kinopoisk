@@ -58,20 +58,31 @@ namespace PoiskKino.ApiClient
                 throw new InvalidOperationException("Укажите API-ключ PoiskKino в настройках плагина КиноПоиск.");
 
             using var httpClient = _httpClientFactory.CreateClient(HttpClientName);
+            // HttpClient.Timeout stops at the headers when using ResponseHeadersRead.
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(httpClient.Timeout);
             using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
             request.Headers.Add("X-API-KEY", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-            if (allowNotFound && response.StatusCode == HttpStatusCode.NotFound)
-                return null;
+            try
+            {
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+                if (allowNotFound && response.StatusCode == HttpStatusCode.NotFound)
+                    return null;
 
-            if (!response.IsSuccessStatusCode)
-                _logger.LogWarning("PoiskKino returned HTTP {StatusCode}", (int)response.StatusCode);
-            response.EnsureSuccessStatusCode();
+                if (!response.IsSuccessStatusCode)
+                    _logger.LogWarning("PoiskKino returned HTTP {StatusCode}", (int)response.StatusCode);
+                response.EnsureSuccessStatusCode();
 
-            using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            var result = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
-            return result ?? throw new JsonException("PoiskKino returned an empty JSON document.");
+                using var stream = await response.Content.ReadAsStreamAsync(deadline.Token).ConfigureAwait(false);
+                var result = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, deadline.Token).ConfigureAwait(false);
+                return result ?? throw new JsonException("PoiskKino returned an empty JSON document.");
+            }
+            catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested
+                && (deadline.IsCancellationRequested || exception.InnerException is TimeoutException))
+            {
+                throw new TimeoutException($"PoiskKino request exceeded the timeout of {httpClient.Timeout.TotalSeconds} seconds.", exception);
+            }
         }
     }
 }

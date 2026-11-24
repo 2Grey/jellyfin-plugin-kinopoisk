@@ -21,7 +21,8 @@ namespace Jellyfin.Plugin.Kinopoisk
             serviceCollection.AddHttpClient(RemoteImageUrlSanitizer.HttpClientName,
                 client => client.Timeout = System.TimeSpan.FromSeconds(10))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
-            serviceCollection.AddHttpClient(PoiskKinoApiClient.HttpClientName)
+            serviceCollection.AddHttpClient(PoiskKinoApiClient.HttpClientName,
+                client => client.Timeout = System.TimeSpan.FromSeconds(20))
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             serviceCollection.AddSingleton((sp) => new PoiskKinoApiClient(
                 () => Plugin.Instance.Configuration.PoiskKinoApiToken,

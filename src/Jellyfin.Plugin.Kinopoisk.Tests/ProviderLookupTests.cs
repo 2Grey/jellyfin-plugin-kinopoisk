@@ -38,6 +38,29 @@ namespace Jellyfin.Plugin.Kinopoisk.Tests
             api.VerifyNoOtherCalls();
         }
 
+        [Theory]
+        [InlineData("/movies/kp-111/Film.kp-222.mkv", 222)]
+        [InlineData("/movies/kp-111/Film.mkv", 0)]
+        [InlineData(@"D:\movies\kp-111\Film.kp222.mkv", 222)]
+        public async Task MovieIdIsReadOnlyFromTheFilename(string path, int expectedId)
+        {
+            var api = new Mock<IPoiskKinoApiClient>(MockBehavior.Strict);
+            var info = new MovieInfo { Path = path };
+            Assert.Equal((expectedId > 0, expectedId), await CreateResolver(api.Object).TryResolve(info));
+            api.VerifyNoOtherCalls();
+        }
+
+        [Theory]
+        [InlineData("/series/kp-111/Series [kp-222]/", 222)]
+        [InlineData(@"D:\series\kp-111\Series\", 0)]
+        public async Task SeriesIdIsReadOnlyFromTheSeriesFolder(string path, int expectedId)
+        {
+            var api = new Mock<IPoiskKinoApiClient>(MockBehavior.Strict);
+            var resolver = new VideoResolver<SeriesInfo>(api.Object, NullLogger<VideoResolver<SeriesInfo>>.Instance);
+            Assert.Equal((expectedId > 0, expectedId), await resolver.TryResolve(new SeriesInfo { Path = path }));
+            api.VerifyNoOtherCalls();
+        }
+
         [Fact]
         public async Task SearchMatchesYearUsingNumericApiYear()
         {

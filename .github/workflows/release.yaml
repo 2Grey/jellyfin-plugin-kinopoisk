@@ -3,6 +3,10 @@ name: Release
 on:
   workflow_dispatch:
 
+concurrency:
+  group: plugin-release
+  cancel-in-progress: false
+
 env:
   DIST_ARCHIVES_PATH: dist/kinopoisk
   MANIFEST_FILE: dist/manifest.json
@@ -11,88 +15,48 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
+
+    - name: Verify release version
+      run: |
+        if [[ "$GITHUB_REF_TYPE" != branch ]]; then
+          echo "::error::Запустите выпуск из ветки, чтобы сохранить в неё манифест."
+          exit 1
+        fi
+
+        VERSION=$(sed -nE '/^## \[Unreleased\]/d; s/^## \[v?([^]]+)\].*/\1/p' CHANGELOG.md | sed -n '1p')
+        if [[ ! "$VERSION" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+          echo "::error::Укажите новую версию из четырёх чисел в CHANGELOG.md."
+          exit 1
+        fi
+
+        if ! jq -e --arg version "$VERSION" 'all(.[0].versions[]; .version != $version)' "$MANIFEST_FILE" > /dev/null; then
+          echo "::error::Версия $VERSION уже есть в манифесте или манифест не читается."
+          exit 1
+        fi
+
+        TAG_STATUS=0
+        git ls-remote --exit-code --refs origin "refs/tags/v${VERSION}" > /dev/null || TAG_STATUS=$?
+        case "$TAG_STATUS" in
+          0) echo "::error::Тег v${VERSION} уже существует."; exit 1 ;;
+          2) ;;
+          *) echo "::error::Не удалось проверить теги в origin."; exit "$TAG_STATUS" ;;
+        esac
+
+        echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
     - name: Setup .NET 10.0
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
 
-    - name: Determine version
-      id: version
-      run: |
-        VERSION=""
-        if [ -n "${{ github.event.inputs.version }}" ]; then
-          VERSION="${{ github.event.inputs.version }}"
-        elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          VERSION="${GITHUB_REF#refs/tags/v}"
-        else
-          # Пытаемся получить версию из CHANGELOG.md
-          if [ -f CHANGELOG.md ]; then
-            CHANGELOG_VERSION=$(grep -E '^## \[' CHANGELOG.md | grep -v '## \[Unreleased\]' | head -1 | sed -E 's/^## \[v?([^]]+)\].*/\1/')
-            if [ -n "$CHANGELOG_VERSION" ]; then
-              VERSION=$CHANGELOG_VERSION
-            fi
-          fi
-          # Если не нашли версию в CHANGELOG.md, пробуем git
-          if [ -z "$VERSION" ]; then
-            GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-            if [ -n "$GIT_TAG" ]; then
-              VERSION="${GIT_TAG#v}"
-            fi
-          fi
-        fi
-
-        if [ -z "$VERSION" ]; then
-          echo "Не удалось определить версию. Укажите версию вручную или создайте тег."
-          exit 1
-        fi
-
-        echo "VERSION=$VERSION" >> $GITHUB_ENV
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-    - name: Extract changelog
-      id: changelog
-      run: |
-        if [ -f CHANGELOG.md ]; then
-          # Ищем номер строки с нашей версией
-          LINE_NUM=$(grep -n "## \\[${{ env.VERSION }}\\]" CHANGELOG.md | cut -d: -f1)
-          
-          if [ -n "$LINE_NUM" ]; then
-            # Извлекаем контент от следующей строки до следующего заголовка ## [
-            NEXT_HEADER_LINE=$(tail -n +$((LINE_NUM+1)) CHANGELOG.md | grep -n "## \\[" | head -1 | cut -d: -f1)
-            
-            if [ -n "$NEXT_HEADER_LINE" ]; then
-              # Есть следующий заголовок - извлекаем до него
-              CHANGELOG=$(tail -n +$((LINE_NUM+1)) CHANGELOG.md | head -n $((NEXT_HEADER_LINE-1)))
-            else
-              # Нет следующего заголовка - извлекаем до конца файла
-              CHANGELOG=$(tail -n +$((LINE_NUM+1)) CHANGELOG.md)
-            fi
-            
-            # Удаляем пустые строки в начале и конце
-            CHANGELOG=$(echo "$CHANGELOG" | sed -e '1s/^[[:space:]]*//' -e '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
-            
-            # Если остались только пустые строки
-            if [ -z "$(echo "$CHANGELOG" | tr -d '[:space:]')" ]; then
-              CHANGELOG="New release"
-            fi
-          else
-            CHANGELOG="New release"
-          fi
-        else
-          CHANGELOG="New release"
-        fi
-        
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGELOG" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-
     - name: Build project
-      run: dotnet build --configuration Release --property:Version=${VERSION} ./src
+      run: dotnet build --configuration Release --property:Version="$VERSION" ./src
 
     - name: Test project
       run: dotnet test --configuration Release --no-build ./src
@@ -101,79 +65,59 @@ jobs:
       run: |
         RELEASE_FILENAME=jellyfin-plugin-kinopoisk_${VERSION}.zip
         RELEASE_FILE=${DIST_ARCHIVES_PATH}/${RELEASE_FILENAME}
-        rm -f "${RELEASE_FILE}"
-        zip --junk-paths $RELEASE_FILE \
+        mkdir -p "$DIST_ARCHIVES_PATH"
+        rm -f "$RELEASE_FILE"
+        zip --junk-paths "$RELEASE_FILE" \
           ./src/Jellyfin.Plugin.Kinopoisk/bin/Release/net10.0/Jellyfin.Plugin.Kinopoisk.dll \
           ./src/PoiskKino.ApiClient/bin/Release/net10.0/PoiskKino.ApiClient.dll
-        echo "RELEASE_FILENAME=$RELEASE_FILENAME" >> $GITHUB_ENV
-        echo "RELEASE_FILE=$RELEASE_FILE" >> $GITHUB_ENV
+        echo "RELEASE_FILE=$RELEASE_FILE" >> "$GITHUB_ENV"
 
-    - name: Create Release
-      id: create_release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: v${{ env.VERSION }}
-        body: ${{ steps.changelog.outputs.changelog }}
-        files: |
-          ${{ env.RELEASE_FILE }}
-
-    - name: Hashsum calculation
-      id: hashsum
+    - name: Prepare manifest
       run: |
-        HASH=$(md5sum "${DIST_ARCHIVES_PATH}/jellyfin-plugin-kinopoisk_${VERSION}.zip" | cut -d' ' -f1)
-        echo "HASH=$HASH" >> $GITHUB_ENV
-        echo "hash=$HASH" >> $GITHUB_OUTPUT
+        NOTES_FILE="$RUNNER_TEMP/kinopoisk-release-notes.md"
+        awk -v version="$VERSION" '
+          /^## \[/ {
+            if (section) exit
+            section = index($0, "## [" version "]") == 1 || index($0, "## [v" version "]") == 1
+            next
+          }
+          section { print }
+        ' CHANGELOG.md > "$NOTES_FILE"
+        CHANGELOG=$(<"$NOTES_FILE")
+        if [[ -z "${CHANGELOG//[[:space:]]/}" ]]; then
+          CHANGELOG="New release"
+        fi
+        printf '%s' "$CHANGELOG" > "$NOTES_FILE"
+        HASH=$(md5sum "$RELEASE_FILE" | cut -d' ' -f1)
+        SOURCE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/v$VERSION/${RELEASE_FILE##*/}"
 
-    - name: Update manifest
-      id: update_manifest
+        jq --arg version "$VERSION" \
+           --arg hash "$HASH" \
+           --rawfile changelog "$NOTES_FILE" \
+           --arg abi "$TARGET_ABI" \
+           --arg timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+           --arg url "$SOURCE_URL" \
+           '.[0].versions |= ([{
+             version: $version, checksum: $hash, changelog: $changelog,
+             targetAbi: $abi, sourceUrl: $url, timestamp: $timestamp
+           }] + .)' "$MANIFEST_FILE" > "${MANIFEST_FILE}.tmp"
+        mv "${MANIFEST_FILE}.tmp" "$MANIFEST_FILE"
+        echo "NOTES_FILE=$NOTES_FILE" >> "$GITHUB_ENV"
+
+    - name: Publish release and push manifest
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
-        CHANGELOG_JSON=$(echo -n "${{ steps.changelog.outputs.changelog }}" | jq -Rs .)
-        # SOURCE_URL="${{ fromJSON(steps.create_release.outputs.assets)[0].browser_download_url }}" # Не работает, отдаёт временный урл
-        SOURCE_URL="${{ github.server_url }}/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.RELEASE_FILENAME }}"
+        REMOTE_SHA=$(git ls-remote --exit-code --refs origin "$GITHUB_REF" | cut -f1)
+        if [[ "$REMOTE_SHA" != "$GITHUB_SHA" ]]; then
+          echo "::error::Ветка изменилась после запуска. Запустите выпуск заново с её актуального коммита."
+          exit 1
+        fi
 
-        jq --arg VERSION "${{ env.VERSION }}" \
-           --arg HASH "${{ env.HASH }}" \
-           --argjson CHANGELOG "$CHANGELOG_JSON" \
-           --arg TARGET_ABI "${{ env.TARGET_ABI }}" \
-           --arg TIMESTAMP "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-           --arg SOURCE_URL "$SOURCE_URL" \
-           '.[0].versions = [
-             {
-               "version": $VERSION,
-               "checksum": $HASH,
-               "changelog": $CHANGELOG,
-               "targetAbi": $TARGET_ABI,
-               "sourceUrl": $SOURCE_URL,
-               "timestamp": $TIMESTAMP
-             }
-           ] + .[0].versions' \
-           "${MANIFEST_FILE}" > "${MANIFEST_FILE}.tmp"
-
-        mv "${MANIFEST_FILE}.tmp" "${MANIFEST_FILE}"
-
-
-    - name: Commit and push changes
-      run: |
-        # Настраиваем git
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git config user.name "github-actions[bot]"
-        
-        # Получаем имя текущей ветки
-        CURRENT_BRANCH=${GITHUB_REF#refs/heads/}
-        echo "Текущая ветка: $CURRENT_BRANCH"
-        
-        # Проверяем, есть ли изменения в манифесте или архиве
-        if git diff --quiet HEAD -- "${MANIFEST_FILE}"; then
-          echo "ℹ️ Нет изменений для коммита"
-        else
-          # Добавляем измененные файлы
-          git add "${MANIFEST_FILE}"
-          
-          # Создаем коммит с [skip ci], чтобы не запускать workflow снова
-          git commit -m "Added to manifest version ${{ env.VERSION }} [skip ci]"
-          echo "✅ Изменения закоммичены"
-          
-          # Пушим изменения в текущую ветку
-          git push origin HEAD:$CURRENT_BRANCH
-          echo "✅ Изменения запущены в ветку $CURRENT_BRANCH"
-        fi
+        git add "$MANIFEST_FILE"
+        git commit -m "Added to manifest version $VERSION [skip ci]"
+
+        gh release create "v$VERSION" "$RELEASE_FILE" --target "$GITHUB_SHA" --notes-file "$NOTES_FILE"
+        git push origin "HEAD:$GITHUB_REF"

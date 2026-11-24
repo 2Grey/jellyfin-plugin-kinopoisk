@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -145,6 +146,26 @@ namespace PoiskKino.ApiClient.Tests
         }
 
         [Fact]
+        public async Task StalledBodyTimesOutAndNextRequestForTheSameMovieRetries()
+        {
+            using var body = new StalledBodyStream();
+            using var handler = new RecordingHandler(_ => body.ReadStarted
+                ? JsonResponse("""{"id":123}""")
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(body) });
+            var upstream = new PoiskKinoApiClient(() => "test-token", NullLogger<PoiskKinoApiClient>.Instance,
+                new ClientFactory(handler, TimeSpan.FromMilliseconds(500)));
+            using var cache = new MemoryCache(new MemoryCacheOptions());
+            var client = new CachedPoiskKinoApiClient(upstream, cache);
+
+            var request = client.GetMovie(123);
+            Assert.Same(request, await Task.WhenAny(request, Task.Delay(TimeSpan.FromSeconds(5))));
+            await Assert.ThrowsAsync<TimeoutException>(() => request);
+            Assert.True(body.ReadStarted);
+            Assert.Equal(123, (await client.GetMovie(123)).Id);
+            Assert.Equal(2, handler.Requests.Count);
+        }
+
+        [Fact]
         public async Task ResponseContentIsDisposedAfterDeserialization()
         {
             using var content = new TrackingContent(Fixture("movie.json"));
@@ -179,11 +200,21 @@ namespace PoiskKino.ApiClient.Tests
         private sealed class ClientFactory : IHttpClientFactory
         {
             private readonly HttpMessageHandler _handler;
-            public ClientFactory(HttpMessageHandler handler) => _handler = handler;
+            private readonly TimeSpan? _timeout;
+
+            public ClientFactory(HttpMessageHandler handler, TimeSpan? timeout = null)
+            {
+                _handler = handler;
+                _timeout = timeout;
+            }
+
             public HttpClient CreateClient(string name)
             {
                 Assert.Equal(PoiskKinoApiClient.HttpClientName, name);
-                return new HttpClient(_handler, disposeHandler: false);
+                var client = new HttpClient(_handler, disposeHandler: false);
+                if (_timeout.HasValue)
+                    client.Timeout = _timeout.Value;
+                return client;
             }
         }
 
@@ -219,6 +250,18 @@ namespace PoiskKino.ApiClient.Tests
             {
                 if (disposing) IsDisposed = true;
                 base.Dispose(disposing);
+            }
+        }
+
+        private sealed class StalledBodyStream : MemoryStream
+        {
+            public bool ReadStarted { get; private set; }
+
+            public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                ReadStarted = true;
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+                return 0;
             }
         }
     }

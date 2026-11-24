@@ -22,10 +22,12 @@ namespace Jellyfin.Plugin.Kinopoisk.ProviderIdResolvers
             if (baseResult.IsSuccess)
                 return baseResult;
 
-            // Try to get from filename
+            // The final component is the movie filename or the series folder.
             if (!string.IsNullOrEmpty(info.Path))
             {
-                var match = _kinopoiskIdRegex.Match(info.Path);
+                var path = info.Path.TrimEnd('/', '\\');
+                var separator = System.Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
+                var match = _kinopoiskIdRegex.Match(path[(separator + 1)..]);
                 if (match.Success && int.TryParse(match.Groups["kinopoiskId"].Value, out var result) && result > 0)
                 {
                     _logger.LogDebug($"Got KinopoiskProviderId from filename ({result}, {info.Path})");
